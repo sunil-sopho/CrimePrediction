@@ -141,10 +141,7 @@ def attention(inputs, attention_size, time_major=False, return_alphas=False):
     # Output of (Bi-)RNN is reduced with attention vector; the result has (B,D) shape
     output = tf.reduce_sum(inputs * tf.expand_dims(alphas, -1), 1)
 
-    if not return_alphas:
-        return output
-    else:
-        return output, alphas
+    return (output, alphas) if return_alphas else output
 
 def split_dataset(x_test, y_test, dev_ratio):
     """split test dataset to test and dev set with ratio """
@@ -425,7 +422,7 @@ for e in range(50):
     x_batch1 =[]
     x_batch2 = []
     y_batch1 = []
-    
+
     # Recording error, prediction, truth values(for F1-scores)
     for i in range(len(x_train)-80):
         i+=80
@@ -466,60 +463,54 @@ for e in range(50):
     tr.append([f1,f2])
     # print(f1)
     print("TRain :: ",np.mean(err)," : micro ",f1," : macro",f2," : ",epoch_finish-epoch_start)
-    # print(classification_report(y_true=trues,y_pred=preds,target_names=target_names))
+    preds = []
+    trues = []
+    x_batch1 =[]
+    y_batch1 = []
+    x_batch2 = []
+    err = []
+    for i in range(len(x_test)):
+        # i+=100
+        x_batch = x_test[i:min(len(x_test)-1,timeSize+(i))]
+        x_anomaly = x_test2[i:min(len(x_test)-1,timeSize+(i))]
+        if len(x_batch) < timeSize:
+          continue
+        x_batch = x_batch
+        x_anomaly = x_anomaly
+        y_batch = x_test[min(len(x_test)-1,timeSize+(i))].T
+        x_batch1.append(x_batch)
+        x_batch2.append(x_anomaly)
+        y_batch1.append(y_batch)
+        if (i+1)% BATCH_SIZE >0:
+          continue
+        fd = {batch_x: x_batch1,anomaly_x:x_batch2, batch_y: y_batch1, keep_prob: KEEP_PROB}
+        l, acc,oht,weightSupport = sess.run([loss, accuracy,one_hot_prediction,weight_soft], feed_dict=fd)
+        err.append(l)
+        # sess.run(optimizer,feed_dict=fd)
+        for j in range(BATCH_SIZE):
+          # print(oht.shape)
+          preds.extend(np.array(oht[j]).reshape(-1,4))
+          trues.extend(np.array(y_batch1[j]).reshape(-1,4))
 
-    # Predictions on test data and storing info for visualization
-    if True:
-      preds = []
-      trues = []
-      x_batch1 =[]
-      y_batch1 = []
-      x_batch2 = []
-      err = []
-      for i in range(len(x_test)):
-          # i+=100
-          x_batch = x_test[i:min(len(x_test)-1,timeSize+(i))]
-          x_anomaly = x_test2[i:min(len(x_test)-1,timeSize+(i))]
-          if len(x_batch) < timeSize:
-            continue
-          x_batch = x_batch
-          x_anomaly = x_anomaly
-          y_batch = x_test[min(len(x_test)-1,timeSize+(i))].T
-          x_batch1.append(x_batch)
-          x_batch2.append(x_anomaly)
-          y_batch1.append(y_batch)
-          if (i+1)% BATCH_SIZE >0:
-            continue
-          fd = {batch_x: x_batch1,anomaly_x:x_batch2, batch_y: y_batch1, keep_prob: KEEP_PROB}
-          l, acc,oht,weightSupport = sess.run([loss, accuracy,one_hot_prediction,weight_soft], feed_dict=fd)
-          err.append(l)
-          # sess.run(optimizer,feed_dict=fd)
-          for j in range(BATCH_SIZE):
-            # print(oht.shape)
-            preds.extend(np.array(oht[j]).reshape(-1,4))
-            trues.extend(np.array(y_batch1[j]).reshape(-1,4))
+        x_batch1 =[]
+        y_batch1 = []
+        x_batch2 = []
 
-          x_batch1 =[]
-          y_batch1 = []
-          x_batch2 = []
-
-      # print(preds)
-      preds = np.array(preds)
-      trues = np.array(trues)
-      # f1 = f1_score(y_true=y_batch, y_pred=oht, average='weighted')
-      f1 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='micro')
-      f2 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='macro')
-      if testA < f1:
-        testA=f1
-        save_path = saver.save(sess, "./modelM/model"+str(f1)[:5]+".ckpt")
-        # print(classification_report(y_true=trues,y_pred=preds,target_names=target_names))
-        predsAr.append(preds)
-      ts.append([f1,f2])
-      # print(f1)
-      print(np.mean(err)," : micro ",f1," : macro",f2," : ")
-      print(weightSupport)
+    # print(preds)
+    preds = np.array(preds)
+    trues = np.array(trues)
+    # f1 = f1_score(y_true=y_batch, y_pred=oht, average='weighted')
+    f1 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='micro')
+    f2 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='macro')
+    if testA < f1:
+      testA=f1
+      save_path = saver.save(sess, "./modelM/model"+str(f1)[:5]+".ckpt")
       # print(classification_report(y_true=trues,y_pred=preds,target_names=target_names))
-
+      predsAr.append(preds)
+    ts.append([f1,f2])
+    # print(f1)
+    print(np.mean(err)," : micro ",f1," : macro",f2," : ")
+    print(weightSupport)
 # Commented out IPython magic to ensure Python compatibility.
 # %matplotlib notebook
 import matplotlib.pyplot as plt
@@ -549,8 +540,7 @@ for i in range(len(x_test)):
     x_batch2.append(x_anomaly)
     y_batch1.append(y_batch)
     if (i+1)% BATCH_SIZE >0:
-      continue
-      sub=3
+        continue
     fd = {batch_x: x_batch1,anomaly_x:x_batch2, batch_y: y_batch1, keep_prob: KEEP_PROB}
     l, acc,oht,weightSupport = sess.run([loss, accuracy,one_hot_prediction,weight_soft], feed_dict=fd)
     err.append(l)
@@ -577,11 +567,6 @@ trues = np.array(trues)
 # f1 = f1_score(y_true=y_batch, y_pred=oht, average='weighted')
 f1 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='micro')
 f2 = f1_score(y_true=np.where(trues>0,1,0), y_pred=np.where(preds>0,1,0), average='macro')
-# if testA < f1:
-  # testA=f1
-  # save_path = saver.save(sess, "./modelM/model"+str(f1)[:5]+".ckpt")
-  # print(classification_report(y_true=trues,y_pred=preds,target_names=target_names))
-  # predsAr.append(preds)
 ts.append([f1,f2])
 # print(f1)
 print(np.mean(err)," : micro ",f1," : macro",f2," : ")
